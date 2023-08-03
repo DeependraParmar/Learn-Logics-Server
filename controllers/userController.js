@@ -4,6 +4,7 @@ import { sendToken } from "../utils/sendToken.js";
 import ErrorHandler from "../utils/errorHandler.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
+import {Course} from "../models/Course.js";
 
 // controller to register a user 
 export const register = catchAsyncError( async(req,res,next) => {
@@ -192,5 +193,65 @@ export const resetPassword = catchAsyncError( async(req,res,next) => {
     res.status(200).json({
         success: true,
         message: "Password Reset Successful",
+    })
+});
+
+
+
+// controller to add a playlist 
+export const addToPlaylist = catchAsyncError(async(req,res,next) => {
+    const user = await User.findById(req.user._id);
+    const course = await Course.findById(req.body.id);
+
+    if(!course){
+        return next(new ErrorHandler("Incorrect Course ID",404));
+    }
+
+    const playlistExist = user.playlist.find((playlist)=> {
+        if(playlist.course.toString()===course._id.toString()){
+            return true; 
+        }
+    });
+
+    if(playlistExist){
+        return next(new ErrorHandler("Playlist already exists",409));
+    }
+
+    user.playlist.push({
+        course: course._id,
+        poster: course.poster.url,
+    });
+
+    await user.save();
+
+    res.status(200).json({
+        success: true,
+        message: "Course added to playlist. View Profile to see playlists",
+    })
+});
+
+
+
+// controller to delete a playlist 
+export const removeFromPlaylist = catchAsyncError(async(req,res,next) => {
+    const user = await User.findById(req.user._id);
+    const course = await Course.findById(req.query.id);
+
+    if(!course){
+        return next(new ErrorHandler("Invalid Course ID",409));
+    }
+
+    const newPlaylist = user.playlist.filter((playlist)=> {
+        if(playlist.course.toString() !== course._id){
+            return playlist;
+        }
+    });
+
+    user.playlist = newPlaylist;
+    await user.save();
+
+    res.status(200).json({
+        success: true,
+        message: "Removed From Playlist",
     })
 });
