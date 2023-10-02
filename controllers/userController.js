@@ -5,13 +5,16 @@ import ErrorHandler from "../utils/errorHandler.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
 import {Course} from "../models/Course.js";
+import getDataUri from "../utils/dataUri.js";
+import cloudinary from "cloudinary";
 
 // controller to register a user 
 export const register = catchAsyncError( async(req,res,next) => {
     const {name,email,password} = req.body;
-    // const file = req.file; 
+    const file = req.file;
+    
 
-    if( !name || !email || !password)
+    if( !name || !email || !password || !file)
         return (next(new ErrorHandler("All the fields are required",400)));
 
     let user = await User.findOne({email});
@@ -19,12 +22,14 @@ export const register = catchAsyncError( async(req,res,next) => {
     if(user) 
         return next(new ErrorHandler("User Already Exists. Please go to Login",409));
 
-    // upload file on cloudinary
+    const fileUri = getDataUri(file);
+    const cloud = await cloudinary.v2.uploader.upload(fileUri.content);
+
     user = await User.create({
         name,email,password,
         avatar: {
-            public_id: "temp",
-            url: "temp",
+            public_id: cloud.public_id,
+            url: cloud.secure_url,
         }
     });
 
@@ -36,7 +41,6 @@ export const register = catchAsyncError( async(req,res,next) => {
 // controller to login a  user 
 export const login = catchAsyncError(async(req,res,next)=> {
     const {email,password} = req.body;
-    // const file = req.file; 
 
     if( !email || !password){
         return next(new ErrorHandler("All Fields are Required", 400));
@@ -80,6 +84,26 @@ export const myProfile = catchAsyncError( async(req,res,next) => {
         user, 
     })
 });
+
+
+// controller to delete my profile 
+export const deleteMyProfile = catchAsyncError(async(req,res,next) => {
+    const user = await User.findById(req.user._id);
+
+    if(!user) {
+        return next(new ErrorHandler("User Not Found",404));
+    }
+
+    await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+    await user.remove();
+
+    res.status(200).cookie("token",null, {
+        expires: new Date(Date.now()),
+    }).json({
+        success: true,
+        message: "Profile Deleted Successfully",
+    })
+})
 
 
 // controller for changing the password of the user 
@@ -130,6 +154,22 @@ export const updateProfile = catchAsyncError( async(req,res,next) => {
 
 // controller for updating the profile picture 
 export const updateProfilePicture = catchAsyncError( async(req,res,send) => {
+    const user = await User.findById(req.user._id);
+    const file = req.file;
+    const fileUri = getDataUri(file);
+    const cloud = await cloudinary.v2.uploader.upload(fileUri.content);
+
+    //destroying the older picture
+    await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+
+    // updating the profile picture 
+    user.avatar = {
+        public_id: cloud.public_id,
+        url: cloud.secure_url,
+    }
+
+    await user.save();
+
     res.status(200).json({
         success: true,
         message: "Profile Picture Updated Successfully",
@@ -255,3 +295,49 @@ export const removeFromPlaylist = catchAsyncError(async(req,res,next) => {
         message: "Removed From Playlist",
     })
 });
+
+
+// controller to get all the users in the admin dashboard 
+export const getAllUsers = catchAsyncError(async (req,res,next) => {
+    const users = await User.find({});
+
+    res.status(200).json({
+        success: true,
+        users,
+    })
+});
+
+// updating the role of the user here 
+export const updateUserRole = catchAsyncError(async(req,res,next) => {
+    const user = await User.findById(req.params.id);
+
+    if(!user){
+        return next(new ErrorHandler("User Not Found",404));
+    }
+
+    if(user.role === "user") user.role = "admin"
+    else user.role="user"
+
+    await user.save(); 
+
+    res.status(200).json({
+        success: true,
+        message: "Role Updated Successfully",
+    })
+});
+
+// controller to delete the user from the admin dashboard 
+export const deleteUser = catchAsyncError(async(req,res,next) => {
+    const user = await User.findById(req.params.id);
+
+    if(!user){
+        return next(new ErrorHandler("User Not Found",404));
+    }
+    await cloudinary.v2.uploader.destroy(user.avatar.public_id);
+    await user.remove();
+
+    res.status(200).json({
+        success: true,
+        message: "User deleted successfully",
+    })
+})
